@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: "0 9 * * 1"        # Mondays 09:00 UTC
+    - cron: "0 9 * * 1"   # Mondays 09:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -14,8 +14,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout (with LFS)
         uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Show repo tree (debug)
+        run: |
+          echo "PWD: $PWD"
+          git lfs ls-files || true
+          echo "--- repo root ---"
+          ls -la
+          echo "--- data ---"
+          ls -la data || true
+          echo "--- data/raw ---"
+          ls -la data/raw || true
+
+      - name: Assert raw CSV exists
+        run: |
+          RAW="data/raw/Most-Recent-Cohorts-Institution_05192025.csv"
+          if [ ! -f "$RAW" ]; then
+            echo "ERROR: $RAW not found in the checkout."
+            exit 1
+          fi
+          wc -c "$RAW"   # print size
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -27,7 +49,6 @@ jobs:
 
       - name: Run pipeline (generate subset)
         run: |
-          mkdir -p "${{ github.workspace }}/data"
           docker run --rm \
             --mount type=bind,src="${{ github.workspace }}/data",dst=/work/data \
             student-outcomes-reporting \
