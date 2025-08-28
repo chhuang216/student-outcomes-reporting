@@ -14,11 +14,11 @@ This project demonstrates a compact, reproducible workflow to ingest public high
 
 **Overview** – weighted KPIs and comparisons  
 ![Overview](tableau/screenshots/overview.png)
-![Link](https://public.tableau.com/shared/MRSKTJH2Q?:display_count=n&:origin=viz_share_link)
+Link: <https://public.tableau.com/shared/MRSKTJH2Q?:display_count=n&:origin=viz_share_link>
 
 **Institution Detail** – searchable, sortable table  
 ![Institution Detail](tableau/screenshots/detail_table.png)
-![Link](https://public.tableau.com/views/student_outcomes/Detail?:language=en-US&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link)
+Link: <https://public.tableau.com/views/student_outcomes/Detail?:language=en-US&publish=yes&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link>
 
 
 
