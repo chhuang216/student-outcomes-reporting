@@ -50,7 +50,7 @@ jobs:
             --mount type=bind,src="${{ github.workspace }}/data",dst=/work/data \
             student-outcomes-reporting \
             --input data/raw/Most-Recent-Cohorts-Institution_05192025.csv \
-            --states "MD DC VA" \
+            --states MD DC VA \
             --output data/scorecard_subset.csv
 
       # NEW: install Python deps for the host-run validation step
