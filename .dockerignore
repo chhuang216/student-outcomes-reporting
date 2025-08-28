@@ -1,0 +1,6 @@
+data/raw/
+.git
+.DS_Store
+*.twb
+*.twbx
+tableau/screenshots/

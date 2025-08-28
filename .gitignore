@@ -1,0 +1,7 @@
+# raw data + local artifacts
+data/raw/
+.DS_Store
+*.twb
+*.twbx
+*.twbr
+~*.twb*

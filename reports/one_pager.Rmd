@@ -1,0 +1,66 @@
+
+---
+title: "Student Outcomes — MD/DC/VA"
+output: pdf_document
+params:
+  csv: "../data/scorecard_subset.csv"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=7, fig.height=3.6, echo=FALSE, message=FALSE, warning=FALSE)
+library(readr); library(dplyr); library(ggplot2); library(scales)
+df <- read_csv(params$csv, show_col_types = FALSE)
+df <- df %>% mutate(across(c(RETENTION_FT_4YR, COMPLETION_150_4YR, PELL_SHARE), as.numeric))
+stopifnot(nrow(df) > 0)
+```
+
+## Key Performance Indicators
+
+```{r kpis}
+kpi <- df %>% summarise(
+  institutions = n(),
+  w_ret = sum(RETENTION_FT_4YR*UGDS, na.rm=TRUE)/sum(UGDS,na.rm=TRUE),
+  w_comp = sum(COMPLETION_150_4YR*UGDS, na.rm=TRUE)/sum(UGDS,na.rm=TRUE)
+)
+data.frame(
+  Metric = c("Institutions in View", "Weighted Retention (4-Yr, FT)", "Weighted Completion (4-Yr, 150%)"),
+  Value  = c(format(kpi$institutions, big.mark=","),
+             percent(kpi$w_ret, accuracy=0.1),
+             percent(kpi$w_comp, accuracy=0.1))
+)
+```
+
+## Weighted Completion by Control
+
+```{r bar-by-control}
+df %>%
+  group_by(CONTROL) %>%
+  summarise(w_completion = sum(COMPLETION_150_4YR*UGDS, na.rm=TRUE)/sum(UGDS,na.rm=TRUE)) %>%
+  ggplot(aes(x = CONTROL, y = w_completion)) +
+  geom_col() +
+  scale_y_continuous(labels = percent) +
+  labs(x = NULL, y = NULL, title = "Weighted Completion (4-Yr, 150%) by Control") +
+  theme_minimal(base_size = 11)
+```
+
+## Retention vs Completion (by Institution)
+
+```{r scatter}
+ggplot(df, aes(RETENTION_FT_4YR, COMPLETION_150_4YR, size = UGDS)) +
+  geom_point(alpha = 0.5) +
+  scale_x_continuous(labels = percent) +
+  scale_y_continuous(labels = percent) +
+  labs(x = "Retention (4-Yr, FT)", y = "Completion (150%, 4-Yr)", size = "UGDS",
+       title = "Retention vs Completion (by Institution)") +
+  theme_minimal(base_size = 11)
+```
+
+---
+
+_Source: U.S. Dept. of Education — College Scorecard (Most Recent). KPIs are student-weighted by UGDS._
+
+**Render locally:**
+
+```bash
+Rscript -e "rmarkdown::render('reports/one_pager.Rmd', params=list(csv='data/scorecard_subset.csv'), output_file='reports/one_pager.pdf')"
+```

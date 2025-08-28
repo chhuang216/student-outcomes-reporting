@@ -1,0 +1,70 @@
+name: data-pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "0 9 * * 1"   # Mondays 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  build-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Prepare subset (MD/DC/VA)
+        run: |
+          python src/prepare_scorecard.py \
+            --input data/raw/Most-Recent-Cohorts-Institution_05192025.csv \
+            --states "MD DC VA" \
+            --output data/scorecard_subset.csv
+
+      - name: Validate subset
+        run: python src/validate_subset.py --input data/scorecard_subset.csv
+
+      - name: Upload subset
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard_subset
+          path: data/scorecard_subset.csv
+
+  one-pager:
+    needs: build-data
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: scorecard_subset
+          path: data
+
+      - name: Set up R and Pandoc
+        uses: r-lib/actions/setup-r@v2
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - name: Install R packages (rmarkdown, tidyverse, tinytex)
+        run: |
+          Rscript -e "install.packages(c('rmarkdown','readr','dplyr','ggplot2','scales'), repos='https://cloud.r-project.org')"
+          Rscript -e "if (!requireNamespace('tinytex', quietly=TRUE)) install.packages('tinytex', repos='https://cloud.r-project.org'); tinytex::install_tinytex()"
+
+      - name: Render one-pager PDF
+        run: Rscript -e "rmarkdown::render('reports/one_pager.Rmd', output_file='one_pager.pdf')"
+
+      - name: Upload one-pager
+        uses: actions/upload-artifact@v4
+        with:
+          name: one_pager_pdf
+          path: reports/one_pager.pdf
