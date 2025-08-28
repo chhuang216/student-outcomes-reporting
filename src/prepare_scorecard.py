@@ -1,129 +1,171 @@
-#!/usr/bin/env python
-# Cell 1: imports & constants
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import argparse
 from pathlib import Path
+import sys
 import pandas as pd
 
-# Canonical keys we want in the final CSV
-CANON_KEYS = [
-    "UNITID","INSTNM","STABBR","CONTROL","PREDDEG","LOCALE","UGDS",
-    "RET_FT4","RET_PT4","RET_FTL4","RET_PTL4","C150_4","C150_L4","TUITIONFEE_IN","PCT_PELL"
+# ---------- helpers ----------
+
+# canonical columns we want to end up with
+CANON = [
+    "UNITID", "INSTNM", "STABBR", "CONTROL", "PREDDEG", "LOCALE",
+    "UGDS", "RET_FT4", "RET_PT4", "RET_FT2", "RET_PT2",
+    "C150_4", "C150_2", "TUITIONFEE_IN", "PCT_PELL"
 ]
 
-# Acceptable name variants found in Scorecard files
-SYNONYMS = {
-    "UNITID": ["UNITID"],
-    "INSTNM": ["INSTNM"],
-    "STABBR": ["STABBR"],
-    "CONTROL": ["CONTROL"],
-    "PREDDEG": ["PREDDEG"],
-    "LOCALE": ["LOCALE"],
-    "UGDS": ["UGDS"],
-    "RET_FT4": ["RET_FT4"],
-    "RET_PT4": ["RET_PT4"],
-    "RET_FTL4": ["RET_FTL4"],
-    "RET_PTL4": ["RET_PTL4"],
-    "C150_4": ["C150_4"],
-    "C150_L4": ["C150_L4"],
-    "TUITIONFEE_IN": ["TUITIONFEE_IN"],
-    "PCT_PELL": ["PCT_PELL", "PCTPELL"],   # <-- robust to underscore/no-underscore
+# light synonym map -> list of candidates you might see in the Scorecard CSV
+CANDIDATES = {
+    "UNITID":        ["unitid"],
+    "INSTNM":        ["instnm", "name"],
+    "STABBR":        ["stabbr", "stateabbr", "state"],
+    "CONTROL":       ["control"],
+    "PREDDEG":       ["preddeg", "pred_degree", "predominant_degree"],
+    "LOCALE":        ["locale"],
+    "UGDS":          ["ugds", "ugds_all", "ugds_male", "ugds_female"],
+    "RET_FT4":       ["ret_ft4"],
+    "RET_PT4":       ["ret_pt4"],
+    "RET_FT2":       ["ret_ft2"],
+    "RET_PT2":       ["ret_pt2"],
+    "C150_4":        ["c150_4", "c150_4_pooled"],
+    "C150_2":        ["c150_2", "c150_2_pooled"],
+    "TUITIONFEE_IN": ["tuitionfee_in", "tuition_in_state", "tuition_in"],
+    "PCT_PELL":      ["pct_pell", "pell_share"],
 }
 
-CONTROL_MAP = {1: "Public", 2: "Private Non-Profit", 3: "Private For-Profit"}
-DEG_MAP     = {0: "Non-Degree", 1: "Certificate", 2: "Associate", 3: "Bachelor", 4: "Graduate"}
-RATE_COLS   = ["RET_FT4","RET_PT4","RET_FTL4","RET_PTL4","C150_4","C150_L4","PCT_PELL"]
+CONTROL_MAP = {
+    1: "Public",
+    2: "Private Non-Profit",
+    3: "Private For-Profit",
+}
 
-# Cell 2: map available columns in the input file to canonical names
-def build_column_map(src_path: Path):
-    header = pd.read_csv(src_path, nrows=0, low_memory=False).columns
-    upper_to_orig = {c.upper(): c for c in header}
+DEG_MAP = {
+    0: "Non-Degree",
+    1: "Certificate",
+    2: "Associate",
+    3: "Bachelor",
+    4: "Graduate",
+}
 
-    colmap = {}     # canonical -> original name in file
-    missing = []    # canonical keys not found
-    for key, opts in SYNONYMS.items():
+RENAME = {
+    "RET_FT4": "RETENTION_FT_4YR",
+    "RET_PT4": "RETENTION_PT_4YR",
+    "RET_FT2": "RETENTION_FT_2YR",
+    "RET_PT2": "RETENTION_PT_2YR",
+    "C150_4":  "COMPLETION_150_4YR",
+    "C150_2":  "COMPLETION_150_2YR",
+    "PCT_PELL":"PELL_SHARE",
+}
+
+RATE_COLS_CANON = ["RET_FT4", "RET_PT4", "RET_FT2", "RET_PT2", "C150_4", "C150_2", "PCT_PELL"]
+RATE_COLS_FINAL  = [RENAME[c] for c in RATE_COLS_CANON]
+
+def norm_key(s: str) -> str:
+    return ''.join(ch for ch in s.lower() if ch.isalnum())
+
+def build_column_map(src_path: Path) -> dict:
+    """Map our canonical names to actual CSV headers (case/format tolerant)."""
+    header = list(pd.read_csv(src_path, nrows=0).columns)
+    norm_to_raw = {norm_key(h): h for h in header}
+
+    colmap = {}
+    missing = []
+    for canon in CANON:
         found = None
-        for opt in opts:
-            if opt.upper() in upper_to_orig:
-                found = upper_to_orig[opt.upper()]
+        for cand in CANDIDATES.get(canon, []):
+            raw = norm_to_raw.get(norm_key(cand))
+            if raw:
+                found = raw
                 break
+        # also accept exact name as-is
+        if not found and norm_key(canon) in norm_to_raw:
+            found = norm_to_raw[norm_key(canon)]
         if found:
-            colmap[key] = found
+            colmap[canon] = found
         else:
-            missing.append(key)
+            # not fatal; some columns (e.g., RET_PT2) may not exist in the file
+            missing.append(canon)
+    if len(colmap) == 0:
+        raise RuntimeError("Could not match any expected columns from the Scorecard CSV.")
+    if missing:
+        print(f"[warn] missing columns in source: {', '.join(missing)}", file=sys.stderr)
+    return colmap
 
-    return colmap, missing
+def normalize_states_arg(states_arg):
+    """Allow 'MD DC VA' or 'MD,DC,VA' or multiple tokens."""
+    toks = []
+    for s in states_arg:
+        for t in s.replace(",", " ").split():
+            if t:
+                toks.append(t.upper())
+    return toks
 
-# Cell 3: core prep
+def to_01(series: pd.Series) -> pd.Series:
+    s = pd.to_numeric(series, errors="coerce")
+    # If looks like percentages (e.g., 63.5), scale down
+    if s.dropna().max() > 1.5:
+        s = s / 100.0
+    return s.clip(lower=0, upper=1)
+
+# ---------- main prep ----------
+
 def prepare(src_path: Path, dst_path: Path, states):
-    colmap, missing = build_column_map(src_path)
-
-    # Read only the columns we actually found
-    usecols = list(colmap.values())
+    colmap = build_column_map(src_path)
+    usecols = [colmap[c] for c in colmap]  # only those that exist
     df = pd.read_csv(src_path, usecols=usecols, low_memory=False)
 
-    # Rename to canonical keys
-    df.rename(columns={v: k for k, v in colmap.items()}, inplace=True)
+    # Bring to canonical names
+    canon_names = {v: k for k, v in colmap.items()}
+    df = df.rename(columns=canon_names)
 
-    # Optional subset by states (e.g., MD/DC/VA)
-    if states:
-        states = [s.strip().upper() for s in states]
-        if "STABBR" in df.columns:
-            df = df[df["STABBR"].isin(states)].copy()
+    # Filter states
+    states = normalize_states_arg(states)
+    if "STABBR" in df.columns and states:
+        df = df[df["STABBR"].isin(states)].copy()
 
-    # Human-friendly labels (if present)
+    if df.empty:
+        print("No rows after state filter.", file=sys.stderr)
+
+    # Human-friendly mappings
     if "CONTROL" in df.columns:
         df["CONTROL"] = pd.to_numeric(df["CONTROL"], errors="coerce").map(CONTROL_MAP)
     if "PREDDEG" in df.columns:
         df["PREDDEG"] = pd.to_numeric(df["PREDDEG"], errors="coerce").map(DEG_MAP)
 
-    # Convert proportions → percentages where appropriate
-    for c in RATE_COLS:
+    # Normalize rate columns to 0–1
+    for c in RATE_COLS_CANON:
         if c in df.columns:
-            ser = pd.to_numeric(df[c], errors="coerce")
-            # Heuristic: if 95% of values <= 1.1, treat as proportions (0–1) and scale to %
-            try:
-                if ser.dropna().quantile(0.95) <= 1.1:
-                    ser = ser * 100.0
-            except Exception:
-                pass
-            df[c] = ser
+            df[c] = to_01(df[c])
 
-    # Final rename for clarity
-    rename_final = {
-        "RET_FT4":  "RETENTION_FT_4YR",
-        "RET_PT4":  "RETENTION_PT_4YR",
-        "RET_FTL4": "RETENTION_FT_2YR",
-        "RET_PTL4": "RETENTION_PT_2YR",
-        "C150_4":   "COMPLETION_150_4YR",
-        "C150_L4":  "COMPLETION_150_2YR",
-        "PCT_PELL": "PELL_SHARE",
-    }
-    for old, new in rename_final.items():
-        if old in df.columns:
-            df.rename(columns={old: new}, inplace=True)
+    # Numeric cleans
+    for c in ["UGDS", "TUITIONFEE_IN"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # Column order (keep only what exists)
+    # Final rename for presentation
+    df = df.rename(columns=RENAME)
+
+    # Order nice columns if present
     final_order = [
-        "UNITID","INSTNM","STABBR","CONTROL","PREDDEG","LOCALE","UGDS",
-        "RETENTION_FT_4YR","RETENTION_PT_4YR","RETENTION_FT_2YR","RETENTION_PT_2YR",
-        "COMPLETION_150_4YR","COMPLETION_150_2YR","TUITIONFEE_IN","PELL_SHARE"
+        "INSTNM", "STABBR", "CONTROL", "PREDDEG",
+        "RETENTION_FT_4YR", "RETENTION_PT_4YR",
+        "COMPLETION_150_4YR", "COMPLETION_150_2YR",
+        "PELL_SHARE", "UGDS", "TUITIONFEE_IN", "LOCALE", "UNITID"
     ]
-    final_cols = [c for c in final_order if c in df.columns]
-    out = df[final_cols].copy()
+    cols = [c for c in final_order if c in df.columns] + [c for c in df.columns if c not in final_order]
+    df = df[cols].sort_values(["STABBR","INSTNM"], na_position="last").reset_index(drop=True)
 
     dst_path.parent.mkdir(parents=True, exist_ok=True)
-    out.to_csv(dst_path, index=False)
+    df.to_csv(dst_path, index=False)
+    print(f"Wrote {len(df):,} rows -> {dst_path}")
 
-    # Simple runtime summary
-    print(f"[OK] Wrote {dst_path.resolve()} (rows={len(out)}, cols={len(final_cols)})")
-    if missing:
-        print(f"[Note] Missing in source (skipped): {', '.join(missing)}")
+# ---------- CLI ----------
 
-# Cell 4: CLI
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Prepare Scorecard subset CSV for Tableau.")
-    ap.add_argument("--input", required=True, help="Path to raw Scorecard CSV (Most_Recent_Cohorts*.csv)")
+    ap.add_argument("--input", required=True, help="Path to Most_Recent_Cohorts CSV")
     ap.add_argument("--output", default="data/scorecard_subset.csv", help="Output CSV path")
-    ap.add_argument("--states", nargs="*", default=["MD","DC","VA"], help="States to keep (e.g., MD DC VA)")
+    ap.add_argument("--states", nargs="+", default=["MD","DC","VA"], help="States to keep (e.g., MD DC VA)")
     args = ap.parse_args()
     prepare(Path(args.input), Path(args.output), args.states)

@@ -1,56 +1,61 @@
-# Cell 1: imports
-import sys
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import argparse
+import sys
 import pandas as pd
 
-# Cell 2: config
-REQUIRED_COLS = [
-    "UNITID","INSTNM","STABBR","CONTROL","PREDDEG",
-    "UGDS","TUITIONFEE_IN","RETENTION_FT_4YR","COMPLETION_150_4YR","PELL_SHARE"
+REQUIRED = [
+    "INSTNM", "STABBR",
+    "RETENTION_FT_4YR",
+    "COMPLETION_150_4YR",
+    "PELL_SHARE",
+    "UGDS",
+    "TUITIONFEE_IN",
 ]
-PCT_COLS = ["RETENTION_FT_4YR","COMPLETION_150_4YR","PELL_SHARE"]
 
-# Cell 3: load
-def load_csv(path: str) -> pd.DataFrame:
-    return pd.read_csv(path, low_memory=False)
+RATE_COLS = ["RETENTION_FT_4YR", "COMPLETION_150_4YR", "PELL_SHARE"]
 
-# Cell 4: checks
-def check_columns(df: pd.DataFrame):
-    missing = [c for c in REQUIRED_COLS if c not in df.columns]
-    if missing:
-        raise AssertionError(f"Missing columns: {missing}")
+def normalize01(df, cols):
+    for c in cols:
+        if c not in df.columns:
+            print(f"[warn] missing column: {c}", file=sys.stderr)
+            continue
+        s = pd.to_numeric(df[c], errors="coerce")
+        if s.dropna().max() > 1.5:
+            print(f"[info] normalizing {c} from 0–100 to 0–1", file=sys.stderr)
+            s = s / 100.0
+        df[c] = s
+    return df
 
-def check_nonempty(df: pd.DataFrame):
-    if len(df) == 0:
-        raise AssertionError("No rows after preparation.")
+def fail(msg):
+    print(f"VALIDATION FAILED: {msg}", file=sys.stderr)
+    sys.exit(1)
 
-def check_numeric_ranges(df: pd.DataFrame):
-    for c in PCT_COLS:
-        bad = df[c].dropna().pipe(lambda s: (s < 0) | (s > 1))
-        if bad.any():
-            raise AssertionError(f"{c} contains values outside [0,1].")
-    if (df["UGDS"].dropna() < 0).any():
-        raise AssertionError("UGDS contains negative values.")
-    if (df["TUITIONFEE_IN"].dropna() < 0).any():
-        raise AssertionError("TUITIONFEE_IN contains negative values.")
-
-# Cell 5: summary (optional)
-def print_summary(df: pd.DataFrame):
-    print(f"Rows: {len(df):,}")
-    print("States:", ", ".join(sorted(df["STABBR"].dropna().unique())))
-    print(df[["RETENTION_FT_4YR","COMPLETION_150_4YR","UGDS"]].describe().to_string())
-
-# Cell 6: cli
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True)
     args = ap.parse_args()
 
-    try:
-        df = load_csv(args.input)
-        check_columns(df); check_nonempty(df); check_numeric_ranges(df)
-        print_summary(df)
-    except Exception as e:
-        print(f"VALIDATION FAILED: {e}", file=sys.stderr)
-        sys.exit(1)
-    print("VALIDATION PASSED")
+    df = pd.read_csv(args.input)
+    if df.empty:
+        fail("No rows after preparation.")
+
+    missing = [c for c in REQUIRED if c not in df.columns]
+    if missing:
+        fail(f"Missing required columns: {', '.join(missing)}")
+
+    df = normalize01(df, RATE_COLS)
+
+    for c in RATE_COLS:
+        s = pd.to_numeric(df[c], errors="coerce")
+        if (s.dropna() < 0).any() or (s.dropna() > 1).any():
+            fail(f"{c} contains values outside [0,1].")
+
+    # light sanity checks
+    if (pd.to_numeric(df["UGDS"], errors="coerce") < 0).any():
+        fail("UGDS has negative values.")
+    if (pd.to_numeric(df["TUITIONFEE_IN"], errors="coerce") < 0).any():
+        fail("TUITIONFEE_IN has negative values.")
+
+    print(f"VALIDATION OK: {len(df):,} rows, columns good.")

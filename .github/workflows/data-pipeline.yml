@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    - cron: "0 9 * * 1"        # Mondays 09:00 UTC
+    - cron: "0 9 * * 1"   # Mondays 09:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -53,7 +53,6 @@ jobs:
             --states MD DC VA \
             --output data/scorecard_subset.csv
 
-      # NEW: install Python deps for the host-run validation step
       - name: Install Python deps
         run: pip install --no-cache-dir -r requirements.txt
 
