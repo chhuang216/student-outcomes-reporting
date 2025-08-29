@@ -4,7 +4,7 @@ This project demonstrates a compact, reproducible workflow to ingest public high
 
 ![CI](https://github.com/chhuang216/student-outcomes-reporting/actions/workflows/data-pipeline.yml/badge.svg)
 
-**Tech stack:** Python 3.11 (pandas, numpy) • Docker • GitHub Actions (CI) • Tableau • R + rmarkdown (one-pager) • T-SQL/SQL Server • Git
+**Tech stack:** Python 3.11 (pandas, numpy) • Docker • GitHub Actions (CI) • Tableau • T-SQL/SQL Server • Git
 
 
 
